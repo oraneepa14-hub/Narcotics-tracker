@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>เบิกยาให้ผู้ป่วยเฉพาะราย — Dispensing Entry</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<style>
+  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; background: #f4f0fa; margin: 0; }
+  .app { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(107,70,193,0.12); margin-bottom: 16px; }
+  h1 { font-size: 1.25rem; color: #5b21b6; margin: 0 0 4px; }
+  h2 { font-size: 1rem; color: #5b21b6; margin: 0 0 8px; }
+  .sub { color: #777; font-size: 0.9rem; margin-bottom: 16px; }
+  label { display: block; font-size: 0.9rem; color: #444; margin: 10px 0 4px; }
+  select, input, textarea { padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; font-family: inherit; width: 100%; }
+  button { padding: 10px 16px; background: #7c3aed; color: #fff; border: none; border-radius: 10px; font-size: 0.95rem; cursor: pointer; }
+  button.secondary { background: #ede9fe; color: #5b21b6; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .status { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 0.9rem; }
+  .ok { background: #dcfce7; color: #166534; }
+  .err { background: #fee2e2; color: #991b1b; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { padding: 6px; border-bottom: 1px solid #eee; text-align: left; }
+  th { color: #666; font-weight: 600; font-size: 0.78rem; }
+  .tab-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab-bar button { background: #ede9fe; color: #5b21b6; }
+  .tab-bar button.active { background: #7c3aed; color: #fff; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .toggle-row { display: flex; gap: 8px; margin-top: 4px; }
+  .toggle-row button { flex: 1; background: #f3f4f6; color: #555; }
+  .toggle-row button.active { background: #5b21b6; color: #fff; }
+  .scroll-table { max-height: 420px; overflow: auto; border: 1px solid #eee; border-radius: 8px; }
+
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal-box { background: #fff; border-radius: 14px; padding: 24px; max-width: 380px; width: 90%; text-align: center; }
+  .modal-box h2 { margin-bottom: 8px; }
+  .modal-box .sub { margin-bottom: 20px; }
+  .modal-btn-row { display: flex; flex-direction: column; gap: 10px; }
+  .modal-btn-row button { padding: 12px; }
+  .modal-btn-row button.pending { background: #fef3c7; color: #92400e; }
+  .modal-btn-row button.received { background: #dcfce7; color: #166534; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// URL ของ Apps Script Web App
+const API_URL = "https://script.google.com/macros/s/AKfycbxYHKXqVzHz071twSsEC7fGwjd7rzRjaQTa0VDSjGXQomKyFWE6LdSgEYWRONA4KEVXSQ/exec";
+
+const DISPENSE_POINTS = [
+  { value: "sub_warehouse", label: "คลังยาย่อย" },
+  { value: "er_cabinet", label: "ตู้ยาเสพติด ER นอกเวลา" }
+];
+
+const DEFAULT_QTY_ONE_DRUGS = [
+  "Pethidine HCl inj. 50 mg/ml/amp",
+  "Morphine sulfate inj 10 mg/ml/amp",
+  "Morphine solution 10 mg/5 ml (60 ml)"
+];
+
+function fmt(n) {
+  if (n === "" || n === undefined || n === null) return "-";
+  const num = Number(n);
+  return isNaN(num) ? n : num.toLocaleString();
+}
+
+/**
+ * ช่องค้นหาชื่อยาจากฐานข้อมูลยา (DrugMaster) — เลือกแล้ว auto-fill รหัส/หน่วย
+ * และตั้งจำนวนเบิก default = 1 ถ้าเป็นยาในลิสต์ที่กำหนด
+ */
+function DrugMasterPicker({ onSelect }) {
+  const [drugList, setDrugList] = useState(null);
+  const [query, setQuery] = useState("");
+  const [matched, setMatched] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}?action=getDrugMaster`)
+      .then(res => res.json())
+      .then(data => setDrugList(data.success ? data.data : []))
+      .catch(() => setDrugList([]));
+  }, []);
+
+  const handleChange = (val) => {
+    setQuery(val);
+    const found = (drugList || []).find(d => d.itemName === val || d.itemCode === val);
+    setMatched(found || null);
+    if (found) onSelect(found);
+  };
+
+  return (
+    <div>
+      <label>รายชื่อยาที่ต้องการเบิก *</label>
+      <input
+        list="dispenseDrugList"
+        value={query}
+        onChange={e => handleChange(e.target.value)}
+        placeholder={drugList === null ? "กำลังโหลดฐานข้อมูลยา..." : "พิมพ์ชื่อยาหรือรหัสยา..."}
+      />
+      <datalist id="dispenseDrugList">
+        {(drugList || []).map(d => <option key={d.itemCode} value={d.itemName} />)}
+      </datalist>
+      {matched && (
+        <div className="sub" style={{marginTop: "4px"}}>รหัส: {matched.itemCode} · หน่วย: {matched.unit || "-"}</div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- ป๊อปอัพเลือกสถานะใบ ย.ส.2/ว.จ.2 ---------------- */
+function YS2StatusModal({ onChoose }) {
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-box">
+        <h2>สถานะใบ ย.ส.2 / ว.จ.2</h2>
+        <div className="sub">บันทึกการเบิกยาสำเร็จแล้ว กรุณาเลือกสถานะใบ ย.ส.2/ว.จ.2 ของรายการนี้</div>
+        <div className="modal-btn-row">
+          <button className="pending" onClick={() => onChoose("pending")}>ค้างรับใบ ย.ส.2 / ว.จ.2</button>
+          <button className="received" onClick={() => onChoose("received")}>รับใบ ย.ส.2 / ว.จ.2 เรียบร้อยแล้ว</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- บันทึกการเบิกยา ---------------- */
+function DispenseEntryPanel({ staffName }) {
+  const [storagePoint, setStoragePoint] = useState("sub_warehouse");
+  const [patientType, setPatientType] = useState("OPD");
+  const [patientHN, setPatientHN] = useState("");
+  const [drug, setDrug] = useState(null); // { itemCode, itemName, unit }
+  const [qty, setQty] = useState("");
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [pendingSubmitData, setPendingSubmitData] = useState(null);
+
+  const onDrugSelect = (d) => {
+    setDrug(d);
+    if (DEFAULT_QTY_ONE_DRUGS.indexOf(d.itemName) !== -1) {
+      setQty("1");
+    }
+  };
+
+  const resetForm = () => {
+    setPatientHN(""); setDrug(null); setQty(""); setNotes("");
+  };
+
+  const submit = () => {
+    if (!drug || !patientHN || !qty) {
+      setStatus({ ok: false, msg: "กรุณากรอกเลข HN, เลือกรายการยา และจำนวนเบิกให้ครบ" });
+      return;
+    }
+    setStatus(null);
+    // ยังไม่ยิง API ตอนนี้ — ถามสถานะใบ ย.ส.2/ว.จ.2 ผ่านป๊อปอัพก่อน แล้วค่อยบันทึกจริง
+    setPendingSubmitData({ storagePoint, patientType, patientHN, drug, qty, notes });
+    setShowModal(true);
+  };
+
+  const finalizeSubmit = async (ys2Status) => {
+    setShowModal(false);
+    setLoading(true);
+    setStatus(null);
+    try {
+      const d = pendingSubmitData;
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          action: "submitDispensing",
+          storagePoint: d.storagePoint,
+          patientType: d.patientType,
+          patientHN: d.patientHN,
+          itemCode: d.drug.itemCode,
+          itemName: d.drug.itemName,
+          unit: d.drug.unit,
+          qty: d.qty,
+          ys2Status,
+          staffName,
+          notes: d.notes
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: `บันทึกการเบิกยาสำเร็จ (สถานะใบ: ${ys2Status === "pending" ? "ค้างรับ" : "รับเรียบร้อยแล้ว"})` });
+        resetForm();
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+    setPendingSubmitData(null);
+  };
+
+  return (
+    <div>
+      <label>จุดเบิกยา</label>
+      <div className="toggle-row">
+        {DISPENSE_POINTS.map(p => (
+          <button key={p.value} className={storagePoint === p.value ? "active" : ""} onClick={() => setStoragePoint(p.value)}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <label>ประเภทผู้ป่วย</label>
+      <div className="toggle-row">
+        <button className={patientType === "OPD" ? "active" : ""} onClick={() => setPatientType("OPD")}>OPD</button>
+        <button className={patientType === "IPD" ? "active" : ""} onClick={() => setPatientType("IPD")}>IPD</button>
+      </div>
+
+      <label>เลข HN ผู้ป่วย *</label>
+      <input value={patientHN} onChange={e => setPatientHN(e.target.value)} />
+
+      <div style={{marginTop: "10px"}}>
+        <DrugMasterPicker onSelect={onDrugSelect} />
+      </div>
+
+      <label>จำนวนเบิก *</label>
+      <input type="number" value={qty} onChange={e => setQty(e.target.value)} />
+
+      <label>หมายเหตุ</label>
+      <textarea rows="2" value={notes} onChange={e => setNotes(e.target.value)} />
+
+      <button style={{marginTop: "16px"}} disabled={loading} onClick={submit}>
+        {loading ? "กำลังบันทึก..." : "บันทึกการเบิกยา"}
+      </button>
+
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+
+      {showModal && <YS2StatusModal onChoose={finalizeSubmit} />}
+    </div>
+  );
+}
+
+/* ---------------- รายงานการเบิกจ่าย ---------------- */
+function ReportPanel() {
+  const [drugList, setDrugList] = useState(null);
+  const [itemCode, setItemCode] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [rows, setRows] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_URL}?action=getDrugMaster`)
+      .then(res => res.json())
+      .then(data => setDrugList(data.success ? data.data : []))
+      .catch(() => setDrugList([]));
+  }, []);
+
+  const runReport = async () => {
+    setLoading(true);
+    setStatus(null);
+    try {
+      const params = new URLSearchParams({ action: "getDispensingReport" });
+      if (itemCode) params.set("itemCode", itemCode);
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+      const res = await fetch(`${API_URL}?${params.toString()}`);
+      const data = await res.json();
+      if (data.success) {
+        setRows(data.data);
+        if (data.data.length === 0) setStatus({ ok: true, msg: "ไม่พบข้อมูลในช่วงที่เลือก" });
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  const exportExcel = () => {
+    if (!rows || rows.length === 0) return;
+    const sheetData = rows.map(r => ({
+      "วันที่เบิก": r.date,
+      "รายชื่อยา": r.itemName,
+      "จ่ายไป (HN)": r.patientHN,
+      "จำนวนจ่าย": r.qty,
+      "หน่วย": r.unit,
+      "หมายเหตุ": r.notes
+    }));
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "รายงานการเบิกจ่าย");
+    const fileNameSuffix = (startDate || "all") + "_to_" + (endDate || "all");
+    XLSX.writeFile(wb, `dispensing-report-${fileNameSuffix}.xlsx`);
+  };
+
+  return (
+    <div>
+      <div className="sub">เลือกรายการยา (เว้นว่าง = ทุกรายการ) และช่วงวันที่ ที่ต้องการดูรายงาน</div>
+      <div className="form-row">
+        <div>
+          <label>รายการยา</label>
+          <select value={itemCode} onChange={e => setItemCode(e.target.value)}>
+            <option value="">-- ทุกรายการ --</option>
+            {(drugList || []).map(d => <option key={d.itemCode} value={d.itemCode}>{d.itemName}</option>)}
+          </select>
+        </div>
+        <div></div>
+        <div><label>วันที่เริ่มต้น</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
+        <div><label>วันที่สิ้นสุด</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></div>
+      </div>
+
+      <div style={{display: "flex", gap: "10px", marginTop: "16px"}}>
+        <button disabled={loading} onClick={runReport}>{loading ? "กำลังค้นหา..." : "ค้นหารายงาน"}</button>
+        <button className="secondary" disabled={!rows || rows.length === 0} onClick={exportExcel}>📥 ดาวน์โหลด Excel</button>
+      </div>
+
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+
+      {rows && rows.length > 0 && (
+        <div className="scroll-table" style={{marginTop: "16px"}}>
+          <table>
+            <thead>
+              <tr>
+                <th>วันที่เบิก</th>
+                <th>รายชื่อยา</th>
+                <th>จ่ายไป (HN)</th>
+                <th>จำนวนจ่าย</th>
+                <th>หน่วย</th>
+                <th>หมายเหตุ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.date}</td>
+                  <td>{r.itemName}</td>
+                  <td>{r.patientHN}</td>
+                  <td>{fmt(r.qty)}</td>
+                  <td>{r.unit}</td>
+                  <td>{r.notes}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("entry");
+  const [staffName, setStaffName] = useState("");
+
+  return (
+    <div className="app">
+      <div className="card">
+        <h1>เบิกยาให้ผู้ป่วยเฉพาะราย — Dispensing Entry</h1>
+        <div className="sub">คลังยาย่อย / ตู้ยาเสพติด ER นอกเวลา</div>
+        <label>ชื่อผู้เบิก/บันทึก</label>
+        <input value={staffName} onChange={e => setStaffName(e.target.value)} placeholder="เช่น ชื่อ-สกุลเจ้าหน้าที่" />
+      </div>
+
+      <div className="card">
+        <div className="tab-bar">
+          <button className={tab === "entry" ? "active" : ""} onClick={() => setTab("entry")}>บันทึกการเบิกยา</button>
+          <button className={tab === "report" ? "active" : ""} onClick={() => setTab("report")}>รายงานการเบิกจ่าย</button>
+        </div>
+        {tab === "entry" ? <DispenseEntryPanel staffName={staffName} /> : <ReportPanel />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

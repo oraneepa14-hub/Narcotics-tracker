@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>รายงาน Skynet รายเดือน — Reporting/Analytics</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; overflow-x: hidden; font-size: 16px; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; margin: 0; overflow-x: hidden; background: radial-gradient(circle at 6% 15%, rgba(18,147,159,0.08), transparent 42%), radial-gradient(circle at 95% 12%, rgba(183,134,42,0.07), transparent 40%), radial-gradient(circle at 12% 92%, rgba(26,74,122,0.07), transparent 42%), radial-gradient(circle at 90% 90%, rgba(14,124,134,0.07), transparent 42%), #f4f7fa; background-attachment: fixed; }
+  .app { width: 100%; max-width: 100%; margin: 0; padding: 28px clamp(20px, 3vw, 56px) 48px; box-sizing: border-box; }
+  .card { background: #fff; border-radius: 14px; padding: 16px 20px; box-shadow: 0 2px 10px rgba(11,36,64,0.08); margin-bottom: 12px; }
+  h1 { font-size: 1.25rem; color: #0b2440; margin: 0 0 4px; }
+  h2 { font-size: 1rem; color: #0b2440; margin: 0 0 8px; }
+  .sub { color: #777; font-size: 0.9rem; margin-bottom: 16px; }
+  label { display: block; font-size: 0.9rem; color: #444; margin: 10px 0 4px; }
+  select, input, textarea { padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; font-family: inherit; width: 100%; }
+  button { padding: 10px 16px; background: #123a63; color: #fff; border: none; border-radius: 10px; font-size: 0.95rem; cursor: pointer; }
+  button.secondary { background: #eef4f8; color: #0b2440; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .status { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 0.9rem; }
+  .ok { background: #dcfce7; color: #166534; }
+  .err { background: #fee2e2; color: #991b1b; }
+  .warn { background: #fef3c7; color: #92400e; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { padding: 6px; border-bottom: 1px solid #eee; text-align: left; }
+  th { color: #666; font-weight: 600; font-size: 0.78rem; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .scroll-table { max-height: min(620px, 64vh); overflow: auto; border: 1px solid #eee; border-radius: 8px; }
+  .summary-bar { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .summary-box { background: #f5f3ff; border-radius: 10px; padding: 10px 16px; font-size: 0.85rem; color: #0b2440; }
+  .summary-box b { font-size: 1.1rem; display: block; }
+  .mismatch-num { color: #c2410c; }
+  .file-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f1f1; }
+  .file-row .name { flex: 1; }
+</style>
+<script>
+(function() {
+  var REQUIRED_ROLES = ["admin"];
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem("narcoticsSession")); } catch (e) {}
+  var now = new Date();
+  if (!session || !session.token || !session.expiresAt || new Date(session.expiresAt) < now) {
+    localStorage.removeItem("narcoticsSession");
+    window.location.href = "index.html";
+  } else if (REQUIRED_ROLES.indexOf(session.role) === -1) {
+    window.location.href = "index.html";
+  } else {
+    window.NARCOTICS_SESSION = session;
+  }
+})();
+</script>
+</head>
+<body>
+<div id="narcoticsTopbar" style="display:flex;align-items:center;justify-content:flex-end;gap:12px;background:#0b2440;padding:9px 22px;width:100%;box-sizing:border-box;font-family:'Sarabun','Noto Sans Thai',sans-serif;font-size:0.85rem;color:#cbd5e1;border-bottom:1px solid #123a63;">
+  <a href="index.html" style="color:#ffffff;text-decoration:none;font-weight:600;margin-right:auto;">&larr; กลับหน้าหลัก</a>
+  <span>เข้าสู่ระบบในนาม <b id="narcoticsUserName" style="color:#ffffff;"></b></span>
+  <span id="narcoticsUserRole" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.2);padding:2px 10px;border-radius:6px;font-size:0.78rem;"></span>
+  <button onclick="narcoticsLogout()" style="background:transparent;color:#fca5a5;border:1px solid rgba(252,165,165,0.4);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.8rem;">ออกจากระบบ</button>
+</div>
+<script>
+  (function() {
+    var s = window.NARCOTICS_SESSION;
+    if (!s) return;
+    document.getElementById("narcoticsUserName").textContent = s.displayName || s.username;
+    document.getElementById("narcoticsUserRole").textContent = s.role === "admin" ? "ผู้ดูแลระบบ" : "ผู้ปฏิบัติงาน";
+  })();
+  function narcoticsLogout() {
+    var s = window.NARCOTICS_SESSION;
+    localStorage.removeItem("narcoticsSession");
+    if (s && s.token && typeof API_URL !== "undefined") {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "logout", token: s.token }) }).catch(function(){});
+    }
+    window.location.href = "index.html";
+  }
+</script>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// URL ของ Apps Script Web App
+const API_URL = "https://script.google.com/macros/s/AKfycbxpNAS-o0fcxYeCorsy6vRI6XkfFeWOEfBLRZ2VbMcHANn2ijkKWhNa92EwCp5aotv5jw/exec";
+
+const THAI_MONTHS = [
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+];
+
+function fmt(n) {
+  if (n === "" || n === undefined || n === null) return "-";
+  const num = Number(n);
+  return isNaN(num) ? n : num.toLocaleString();
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+/* ---------------- อัปโหลด/ดูไฟล์ Skynet ที่ส่งแล้ว ---------------- */
+function SkynetFilesPanel({ yearMonth, uploaderName }) {
+  const [files, setFiles] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState(null);
+  const fileInputRef = React.useRef(null);
+
+  const loadFiles = () => {
+    setFiles(null);
+    fetch(`${API_URL}?action=getSkynetSubmissions&yearMonth=${yearMonth}&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => setFiles(data.success ? data.data : []))
+      .catch(() => setFiles([]));
+  };
+
+  useEffect(() => { loadFiles(); }, [yearMonth]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setStatus(null);
+    try {
+      const base64 = await fileToBase64(file);
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token, 
+          action: "uploadSkynetReport",
+          yearMonth, fileName: file.name, fileBase64: base64, uploadedBy: uploaderName
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: "อัปโหลดไฟล์สำเร็จ — ยืนยันแล้วว่าเดือนนี้ส่งรายงาน Skynet แล้ว" });
+        loadFiles();
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "อัปโหลดไม่สำเร็จ: " + err.message });
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const openFile = async (f) => {
+    try {
+      const res = await fetch(`${API_URL}?action=downloadSkynetFile&fileId=${f.driveFileId}&token=${(window.NARCOTICS_SESSION||{}).token}`);
+      const data = await res.json();
+      if (!data.success) { setStatus({ ok: false, msg: data.error }); return; }
+      const blob = base64ToBlob(data.data.base64, data.data.mimeType || "application/pdf");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (err) {
+      setStatus({ ok: false, msg: "เปิดไฟล์ไม่สำเร็จ: " + err.message });
+    }
+  };
+
+  return (
+    <div>
+      <div className="sub">อัปโหลดไฟล์ PDF รายงาน Skynet ที่ส่งแล้วของเดือนนี้ ไว้เป็นหลักฐานยืนยัน — เปิดดู/ดาวน์โหลดย้อนหลังได้ทุกเมื่อ</div>
+
+      <input type="file" accept=".pdf" ref={fileInputRef} onChange={handleUpload} disabled={uploading} />
+      {uploading && <div className="sub">กำลังอัปโหลด...</div>}
+
+      {files === null && <div className="sub">กำลังโหลดรายการไฟล์...</div>}
+      {files && files.length === 0 && (
+        <div className="status warn" style={{marginTop: "10px"}}>⚠ ยังไม่มีไฟล์ยืนยันการส่ง Skynet ของเดือนนี้</div>
+      )}
+      {files && files.length > 0 && (
+        <div style={{marginTop: "12px"}}>
+          {files.map((f, i) => (
+            <div className="file-row" key={i}>
+              <span className="name">📄 {f.fileName}</span>
+              <span className="sub" style={{margin: 0}}>อัปโหลดโดย {f.uploadedBy || "-"} เมื่อ {f.uploadedAt}</span>
+              <button className="secondary" onClick={() => openFile(f)}>เปิดดู/ดาวน์โหลด</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+function App() {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const session = window.NARCOTICS_SESSION || {};
+
+  const runReport = async () => {
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`${API_URL}?action=getSkynetMonthlyReport&year=${year}&month=${month}&token=${(window.NARCOTICS_SESSION||{}).token}`);
+      const data = await res.json();
+      if (data.success) {
+        setReport(data.data);
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { runReport(); }, []);
+
+  const exportExcel = () => {
+    if (!report || report.items.length === 0) return;
+    const sheetData = report.items.map(it => ({
+      "รหัสยา": it.itemCode,
+      "รายชื่อยา": it.itemName,
+      "หน่วย": it.unit,
+      "จำนวนตั้งต้น": it.startingQty,
+      "รับเข้าระหว่างเดือน": it.receivedQty,
+      "จ่ายให้ผู้ป่วย (จากระบบเบิกยา)": it.dispensedPatientQty,
+      "จำนวนใช้ไป (สุทธิ)": it.netUsedQty,
+      "จำนวนคงเหลือ": it.endingQty,
+      "ราคาต่อหน่วย": it.unitValue,
+      "มูลค่าคงเหลือ": it.endingValue
+    }));
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Skynet-${report.yearMonth}`);
+    XLSX.writeFile(wb, `skynet-report-${report.yearMonth}.xlsx`);
+  };
+
+  const yearMonthStr = `${year}-${String(month).padStart(2, "0")}`;
+  const yearOptions = [];
+  for (let y = now.getFullYear(); y >= now.getFullYear() - 3; y--) yearOptions.push(y);
+
+  return (
+    <div className="app">
+      <div className="card">
+        <h1>รายงาน Skynet รายเดือน — Reporting/Analytics</h1>
+        <div className="sub">เลือกเดือน/ปี เพื่อดูจำนวนตั้งต้น จำนวนจ่าย จำนวนคงเหลือ และมูลค่า ของยาเสพติด/วัตถุออกฤทธิ์ทุกรายการ (รวมทั้งโรงพยาบาล)</div>
+
+        <div className="form-row">
+          <div>
+            <label>เดือน</label>
+            <select value={month} onChange={e => setMonth(Number(e.target.value))}>
+              {THAI_MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>ปี (ค.ศ.)</label>
+            <select value={year} onChange={e => setYear(Number(e.target.value))}>
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{display: "flex", gap: "10px", marginTop: "16px", flexWrap: "wrap"}}>
+          <button disabled={loading} onClick={runReport}>{loading ? "กำลังโหลด..." : "ดูรายงาน"}</button>
+          <button className="secondary" disabled={!report || report.items.length === 0} onClick={exportExcel}>📥 ดาวน์โหลด Excel</button>
+        </div>
+
+        {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+
+        {report && !report.hasStartingSnapshot && (
+          <div className="status warn" style={{marginTop: "12px"}}>
+            ⚠ ยังไม่มีสแนปช็อตยอดตั้งต้นของเดือนนี้ (ระบบจะบันทึกอัตโนมัติทุกวันที่ 1 เวลา 08:00 น.)
+            ตัวเลข "จำนวนตั้งต้น" และ "จำนวนใช้ไป (สุทธิ)" ของเดือนนี้จะยังไม่มีให้ดู
+          </div>
+        )}
+        {report && !report.isOngoingMonth && !report.hasEndingSnapshot && (
+          <div className="status warn" style={{marginTop: "8px"}}>
+            ⚠ ยังไม่มีสแนปช็อตต้นเดือนถัดไป (ใช้เป็นยอดปิดเดือนนี้) ตัวเลข "จำนวนคงเหลือ" ที่แสดงเป็นค่าปัจจุบัน ณ ตอนนี้แทน อาจไม่ตรงกับยอดปิดจริงของเดือนนั้นเป๊ะ
+          </div>
+        )}
+      </div>
+
+      {report && (
+        <div className="card">
+          <div className="summary-bar">
+            <div className="summary-box">จำนวนรายการยา<b>{report.items.length}</b></div>
+            <div className="summary-box">มูลค่าคงเหลือรวม<b>{fmt(report.totalEndingValue)} บาท</b></div>
+            <div className="summary-box">สถานะเดือนนี้<b>{report.isOngoingMonth ? "กำลังดำเนินอยู่" : "ปิดเดือนแล้ว"}</b></div>
+          </div>
+
+          <div className="scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>รหัสยา</th>
+                  <th>รายชื่อยา</th>
+                  <th>หน่วย</th>
+                  <th>จำนวนตั้งต้น</th>
+                  <th>รับเข้าระหว่างเดือน</th>
+                  <th>จ่ายให้ผู้ป่วย</th>
+                  <th>ใช้ไป (สุทธิ)</th>
+                  <th>คงเหลือ</th>
+                  <th>ราคา/หน่วย</th>
+                  <th>มูลค่าคงเหลือ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.items.map((it, i) => (
+                  <tr key={i}>
+                    <td>{it.itemCode}</td>
+                    <td>{it.itemName}</td>
+                    <td>{it.unit}</td>
+                    <td>{fmt(it.startingQty)}</td>
+                    <td>{fmt(it.receivedQty)}</td>
+                    <td>{fmt(it.dispensedPatientQty)}</td>
+                    <td className={it.netUsedQty !== null && it.netUsedQty !== it.dispensedPatientQty ? "mismatch-num" : ""}>
+                      {fmt(it.netUsedQty)}
+                    </td>
+                    <td>{fmt(it.endingQty)}</td>
+                    <td>{fmt(it.unitValue)}</td>
+                    <td>{fmt(it.endingValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="sub" style={{marginTop: "8px"}}>
+            "ใช้ไป (สุทธิ)" คำนวณจาก ยอดตั้งต้น + รับเข้า − คงเหลือ ถ้าตัวเลขนี้ไม่ตรงกับ "จ่ายให้ผู้ป่วย"
+            อาจเป็นเพราะมีการแก้ไขข้อมูลด้วยมือ (ปรับยอด/แก้ไขอิสระ) ระหว่างเดือนนั้น ให้ตรวจสอบเพิ่มเติม
+          </div>
+        </div>
+      )}
+
+      <div className="card">
+        <h2>ไฟล์ยืนยันการส่งรายงาน Skynet — {THAI_MONTHS[month - 1]} {year}</h2>
+        <div className="sub">
+          ผู้อัปโหลด: <b style={{color: "#0e7c86"}}>{session.displayName}</b> ({session.username}) — ใช้บัญชีที่เข้าสู่ระบบเป็นผู้บันทึกโดยอัตโนมัติ
+        </div>
+        <div style={{marginTop: "10px"}}>
+          <SkynetFilesPanel yearMonth={yearMonthStr} uploaderName={session.displayName} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>เอกสารและลิงก์ที่เกี่ยวข้อง</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; background: #f4f0fa; margin: 0; }
+  .app { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(107,70,193,0.12); margin-bottom: 16px; }
+  h1 { font-size: 1.25rem; color: #5b21b6; margin: 0 0 4px; }
+  h2 { font-size: 1rem; color: #5b21b6; margin: 0 0 8px; }
+  .sub { color: #777; font-size: 0.9rem; margin-bottom: 16px; }
+  label { display: block; font-size: 0.9rem; color: #444; margin: 10px 0 4px; }
+  select, input, textarea { padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; font-family: inherit; width: 100%; }
+  button { padding: 10px 16px; background: #7c3aed; color: #fff; border: none; border-radius: 10px; font-size: 0.95rem; cursor: pointer; }
+  button.secondary { background: #ede9fe; color: #5b21b6; }
+  button.danger { background: #fee2e2; color: #991b1b; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .status { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 0.9rem; }
+  .ok { background: #dcfce7; color: #166534; }
+  .err { background: #fee2e2; color: #991b1b; }
+  .tab-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab-bar button { background: #ede9fe; color: #5b21b6; }
+  .tab-bar button.active { background: #7c3aed; color: #fff; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .item-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f1f1f1; }
+  .item-row .name { flex: 1; }
+  .item-row .name a { color: #5b21b6; text-decoration: none; font-weight: 500; }
+  .item-row .name a:hover { text-decoration: underline; }
+  .meta { color: #999; font-size: 0.78rem; }
+  .btn-group { display: flex; gap: 6px; }
+</style>
+<script>
+(function() {
+  var REQUIRED_ROLES = ["staff", "admin"];
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem("narcoticsSession")); } catch (e) {}
+  var now = new Date();
+  if (!session || !session.token || !session.expiresAt || new Date(session.expiresAt) < now) {
+    localStorage.removeItem("narcoticsSession");
+    window.location.href = "index.html";
+  } else if (REQUIRED_ROLES.indexOf(session.role) === -1) {
+    window.location.href = "index.html";
+  } else {
+    window.NARCOTICS_SESSION = session;
+  }
+})();
+</script>
+</head>
+<body>
+<div id="narcoticsTopbar" style="display:flex;align-items:center;justify-content:flex-end;gap:12px;background:#ffffffcc;backdrop-filter:blur(6px);padding:8px 20px;font-family:'Sarabun','Noto Sans Thai',sans-serif;font-size:0.85rem;color:#555;border-bottom:1px solid #eee;">
+  <a href="index.html" style="color:#7c3aed;text-decoration:none;font-weight:600;margin-right:auto;">&larr; กลับหน้าหลัก</a>
+  <span>เข้าสู่ระบบในนาม <b id="narcoticsUserName" style="color:#5b21b6;"></b></span>
+  <span id="narcoticsUserRole" style="background:#ede9fe;color:#5b21b6;padding:2px 10px;border-radius:999px;font-size:0.78rem;"></span>
+  <button onclick="narcoticsLogout()" style="background:#fee2e2;color:#991b1b;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.8rem;">ออกจากระบบ</button>
+</div>
+<script>
+  (function() {
+    var s = window.NARCOTICS_SESSION;
+    if (!s) return;
+    document.getElementById("narcoticsUserName").textContent = s.displayName || s.username;
+    document.getElementById("narcoticsUserRole").textContent = s.role === "admin" ? "ผู้ดูแลระบบ" : "ผู้ปฏิบัติงาน";
+  })();
+  function narcoticsLogout() {
+    var s = window.NARCOTICS_SESSION;
+    localStorage.removeItem("narcoticsSession");
+    if (s && s.token && typeof API_URL !== "undefined") {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "logout", token: s.token }) }).catch(function(){});
+    }
+    window.location.href = "index.html";
+  }
+</script>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// URL ของ Apps Script Web App
+const API_URL = "https://script.google.com/macros/s/AKfycbxpNAS-o0fcxYeCorsy6vRI6XkfFeWOEfBLRZ2VbMcHANn2ijkKWhNa92EwCp5aotv5jw/exec";
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+/* ---------------- คลังเอกสาร PDF ---------------- */
+function DocumentsPanel({ userName }) {
+  const [docs, setDocs] = useState(null);
+  const [category, setCategory] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState(null);
+  const fileInputRef = React.useRef(null);
+
+  const load = () => {
+    setDocs(null);
+    fetch(`${API_URL}?action=getDocuments&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => setDocs(data.success ? data.data : []))
+      .catch(() => setDocs([]));
+  };
+
+  useEffect(load, []);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setStatus(null);
+    try {
+      const base64 = await fileToBase64(file);
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token, 
+          action: "uploadDocument",
+          fileName: file.name, fileBase64: base64, category, uploadedBy: userName
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: "อัปโหลดเอกสารสำเร็จ" });
+        setCategory("");
+        load();
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "อัปโหลดไม่สำเร็จ: " + err.message });
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const openDoc = async (d) => {
+    try {
+      const res = await fetch(`${API_URL}?action=downloadDocument&fileId=${d.driveFileId}&token=${(window.NARCOTICS_SESSION||{}).token}`);
+      const data = await res.json();
+      if (!data.success) { setStatus({ ok: false, msg: data.error }); return; }
+      const blob = base64ToBlob(data.data.base64, data.data.mimeType || "application/pdf");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (err) {
+      setStatus({ ok: false, msg: "เปิดไฟล์ไม่สำเร็จ: " + err.message });
+    }
+  };
+
+  const removeDoc = async (docId) => {
+    if (!window.confirm("ลบเอกสารนี้ใช่ไหม?")) return;
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "deleteDocument", docId })
+      });
+      const data = await res.json();
+      if (data.success) { load(); } else { setStatus({ ok: false, msg: data.error }); }
+    } catch (err) {
+      setStatus({ ok: false, msg: "ลบไม่สำเร็จ: " + err.message });
+    }
+  };
+
+  return (
+    <div>
+      <div className="sub">เอกสาร PDF ที่เกี่ยวข้อง (เช่น ใบ ย.ส.2/ว.จ.2) — ทุกคนเปิดดู/ดาวน์โหลดได้</div>
+
+      <div className="form-row">
+        <div>
+          <label>หมวดหมู่ (ถ้ามี)</label>
+          <input value={category} onChange={e => setCategory(e.target.value)} placeholder="เช่น ย.ส.2, ว.จ.2, แบบฟอร์มอื่นๆ" />
+        </div>
+        <div>
+          <label>เลือกไฟล์ PDF เพื่ออัปโหลด</label>
+          <input type="file" accept=".pdf" ref={fileInputRef} onChange={handleUpload} disabled={uploading} />
+        </div>
+      </div>
+      {uploading && <div className="sub">กำลังอัปโหลด...</div>}
+
+      {docs === null && <div className="sub">กำลังโหลด...</div>}
+      {docs && docs.length === 0 && <div className="sub">ยังไม่มีเอกสาร</div>}
+
+      {docs && docs.length > 0 && (
+        <div style={{marginTop: "12px"}}>
+          {docs.map((d, i) => (
+            <div className="item-row" key={i}>
+              <div className="name">
+                <a href="#" onClick={(e) => { e.preventDefault(); openDoc(d); }}>📄 {d.fileName}</a>
+                <div className="meta">{d.category ? `หมวด: ${d.category} · ` : ""}อัปโหลดโดย {d.uploadedBy || "-"} เมื่อ {d.uploadedAt}</div>
+              </div>
+              <div className="btn-group">
+                <button className="secondary" onClick={() => openDoc(d)}>เปิด/ดาวน์โหลด</button>
+                <button className="danger" onClick={() => removeDoc(d.docId)}>ลบ</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+/* ---------------- ลิงก์ที่เกี่ยวข้อง ---------------- */
+function LinksPanel({ userName }) {
+  const [links, setLinks] = useState(null);
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState(null);
+
+  const load = () => {
+    setLinks(null);
+    fetch(`${API_URL}?action=getLinks&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => setLinks(data.success ? data.data : []))
+      .catch(() => setLinks([]));
+  };
+
+  useEffect(load, []);
+
+  const addLink = async () => {
+    if (!title || !url) {
+      setStatus({ ok: false, msg: "กรุณากรอกชื่อลิงก์และ URL" });
+      return;
+    }
+    setSaving(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "addLink", title, url, addedBy: userName })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTitle(""); setUrl("");
+        load();
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setSaving(false);
+  };
+
+  const removeLink = async (linkId) => {
+    if (!window.confirm("ลบลิงก์นี้ใช่ไหม?")) return;
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "deleteLink", linkId })
+      });
+      const data = await res.json();
+      if (data.success) { load(); } else { setStatus({ ok: false, msg: data.error }); }
+    } catch (err) {
+      setStatus({ ok: false, msg: "ลบไม่สำเร็จ: " + err.message });
+    }
+  };
+
+  return (
+    <div>
+      <div className="sub">ลิงก์เว็บที่เกี่ยวข้องกับกระบวนการทำงาน — สำหรับ admin เพิ่ม/ลบได้ ทุกคนคลิกเข้าถึงได้</div>
+
+      <div className="form-row">
+        <div><label>ชื่อลิงก์</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="เช่น ระบบ HIS โรงพยาบาล" /></div>
+        <div><label>URL</label><input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://..." /></div>
+      </div>
+      <button style={{marginTop: "12px"}} disabled={saving} onClick={addLink}>
+        {saving ? "กำลังบันทึก..." : "+ เพิ่มลิงก์"}
+      </button>
+
+      {links === null && <div className="sub" style={{marginTop: "12px"}}>กำลังโหลด...</div>}
+      {links && links.length === 0 && <div className="sub" style={{marginTop: "12px"}}>ยังไม่มีลิงก์</div>}
+
+      {links && links.length > 0 && (
+        <div style={{marginTop: "16px"}}>
+          {links.map((l, i) => (
+            <div className="item-row" key={i}>
+              <div className="name">
+                <a href={l.url} target="_blank" rel="noopener noreferrer">🔗 {l.title}</a>
+                <div className="meta">{l.url}</div>
+              </div>
+              <div className="btn-group">
+                <button className="danger" onClick={() => removeLink(l.linkId)}>ลบ</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("docs");
+  const [userName, setUserName] = useState("");
+
+  return (
+    <div className="app">
+      <div className="card">
+        <h1>เอกสารและลิงก์ที่เกี่ยวข้อง</h1>
+        <div className="sub">คลังเอกสาร PDF (เช่น ใบ ย.ส.2/ว.จ.2) และลิงก์เว็บที่เกี่ยวข้องกับกระบวนการทำงาน</div>
+        <label>ชื่อผู้ใช้งาน (บันทึกไว้เวลาอัปโหลด/เพิ่มลิงก์)</label>
+        <input value={userName} onChange={e => setUserName(e.target.value)} placeholder="เช่น ชื่อ-สกุล" />
+      </div>
+
+      <div className="card">
+        <div className="tab-bar">
+          <button className={tab === "docs" ? "active" : ""} onClick={() => setTab("docs")}>เอกสารที่เกี่ยวข้อง</button>
+          <button className={tab === "links" ? "active" : ""} onClick={() => setTab("links")}>ลิงก์ที่เกี่ยวข้อง</button>
+        </div>
+        {tab === "docs" ? <DocumentsPanel userName={userName} /> : <LinksPanel userName={userName} />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

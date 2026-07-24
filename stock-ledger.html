@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>คลังยาเสพติด/วัตถุออกฤทธิ์ 3 จุด — Stock Ledger</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; overflow-x: hidden; font-size: 16px; }
+  body { zoom: 0.8; }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; margin: 0; overflow-x: hidden; background: radial-gradient(circle at 6% 15%, rgba(18,147,159,0.08), transparent 42%), radial-gradient(circle at 95% 12%, rgba(183,134,42,0.07), transparent 40%), radial-gradient(circle at 12% 92%, rgba(26,74,122,0.07), transparent 42%), radial-gradient(circle at 90% 90%, rgba(14,124,134,0.07), transparent 42%), #f4f7fa; background-attachment: fixed; }
+  .app { width: 100%; max-width: 100%; margin: 0; padding: 28px clamp(20px, 3vw, 56px) 48px; box-sizing: border-box; }
+  .card { background: #fff; border-radius: 14px; padding: 16px 20px; box-shadow: 0 2px 10px rgba(11,36,64,0.08); margin-bottom: 12px; }
+  h1 { font-size: 1.25rem; color: #0b2440; margin: 0 0 4px; }
+  h2 { font-size: 1rem; color: #0b2440; margin: 0 0 8px; }
+  .sub { color: #777; font-size: 0.9rem; margin-bottom: 16px; }
+  label { display: block; font-size: 0.9rem; color: #444; margin: 10px 0 4px; }
+  select, input, textarea { padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; font-family: inherit; width: 100%; }
+  button { padding: 10px 16px; background: #123a63; color: #fff; border: none; border-radius: 10px; font-size: 0.95rem; cursor: pointer; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .status { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 0.9rem; }
+  .ok { background: #dcfce7; color: #166534; }
+  .err { background: #fee2e2; color: #991b1b; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { padding: 6px; border-bottom: 1px solid #eee; text-align: left; }
+  th { color: #666; font-weight: 600; font-size: 0.78rem; }
+  .tab-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab-bar button { background: #eef4f8; color: #0b2440; }
+  .tab-bar button.active { background: #123a63; color: #fff; }
+  .point-tab-bar { display: flex; gap: 6px; margin-bottom: 12px; }
+  .point-tab-bar button { background: #f3f4f6; color: #555; padding: 6px 12px; font-size: 0.85rem; }
+  .point-tab-bar button.active { background: #0b2440; color: #fff; }
+  .scroll-table { max-height: min(620px, 64vh); overflow: auto; border: 1px solid #eee; border-radius: 8px; }
+  .loading { text-align: center; color: #888; padding: 20px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .summary-bar { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .summary-box { background: #f5f3ff; border-radius: 10px; padding: 10px 16px; font-size: 0.85rem; color: #0b2440; }
+  .summary-box b { font-size: 1.1rem; display: block; }
+</style>
+<script>
+(function() {
+  var REQUIRED_ROLES = ["admin"];
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem("narcoticsSession")); } catch (e) {}
+  var now = new Date();
+  if (!session || !session.token || !session.expiresAt || new Date(session.expiresAt) < now) {
+    localStorage.removeItem("narcoticsSession");
+    window.location.href = "index.html";
+  } else if (REQUIRED_ROLES.indexOf(session.role) === -1) {
+    window.location.href = "index.html";
+  } else {
+    window.NARCOTICS_SESSION = session;
+  }
+})();
+</script>
+</head>
+<body>
+<div id="narcoticsTopbar" style="display:flex;align-items:center;justify-content:flex-end;gap:12px;background:#0b2440;padding:9px 22px;width:100%;box-sizing:border-box;font-family:'Sarabun','Noto Sans Thai',sans-serif;font-size:0.85rem;color:#cbd5e1;border-bottom:1px solid #123a63;">
+  <a href="index.html" style="color:#ffffff;text-decoration:none;font-weight:600;margin-right:auto;">&larr; กลับหน้าหลัก</a>
+  <span>เข้าสู่ระบบในนาม <b id="narcoticsUserName" style="color:#ffffff;"></b></span>
+  <span id="narcoticsUserRole" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.2);padding:2px 10px;border-radius:6px;font-size:0.78rem;"></span>
+  <button onclick="narcoticsLogout()" style="background:transparent;color:#fca5a5;border:1px solid rgba(252,165,165,0.4);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.8rem;">ออกจากระบบ</button>
+</div>
+<script>
+  (function() {
+    var s = window.NARCOTICS_SESSION;
+    if (!s) return;
+    document.getElementById("narcoticsUserName").textContent = s.displayName || s.username;
+    document.getElementById("narcoticsUserRole").textContent = s.role === "admin" ? "ผู้ดูแลระบบ" : "ผู้ปฏิบัติงาน";
+  })();
+  function narcoticsLogout() {
+    var s = window.NARCOTICS_SESSION;
+    localStorage.removeItem("narcoticsSession");
+    if (s && s.token && typeof API_URL !== "undefined") {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "logout", token: s.token }) }).catch(function(){});
+    }
+    window.location.href = "index.html";
+  }
+</script>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// URL ของ Apps Script Web App
+const API_URL = "https://script.google.com/macros/s/AKfycbxpNAS-o0fcxYeCorsy6vRI6XkfFeWOEfBLRZ2VbMcHANn2ijkKWhNa92EwCp5aotv5jw/exec";
+
+const STORAGE_POINTS = [
+  { value: "main_warehouse", label: "คลังยาใหญ่" },
+  { value: "sub_warehouse", label: "คลังยาย่อย" },
+  { value: "er_cabinet", label: "ตู้ยาเสพติด ER นอกเวลา" }
+];
+const pointLabel = (v) => (STORAGE_POINTS.find(p => p.value === v) || {}).label || v;
+
+function fmt(n) {
+  if (n === "" || n === undefined || n === null) return "-";
+  const num = Number(n);
+  return isNaN(num) ? n : num.toLocaleString();
+}
+
+const DRUG_TYPE_OPTIONS = [
+  { value: "narcotic_2", label: "1) ยาเสพติดประเภท 2" },
+  { value: "psychotropic_2", label: "2) วัตถุออกฤทธิ์ต่อจิตประสาทประเภท 2" }
+];
+const drugTypeLabel = (v) => (DRUG_TYPE_OPTIONS.find(o => o.value === v) || {}).label || (v ? v : "-");
+
+/**
+ * ช่องค้นหาชื่อยาจากฐานข้อมูลยา (DrugMaster) — เลือกแล้ว auto-fill รหัส/หน่วย/ราคา/ประเภทยา
+ * ใช้ <datalist> เพื่อให้พิมพ์ค้นหาได้ (ยังพิมพ์ชื่อ/รหัสเองได้ถ้าไม่มีในฐานข้อมูล)
+ */
+function DrugMasterPicker({ onSelect, listId }) {
+  const [drugList, setDrugList] = useState(null);
+  const [query, setQuery] = useState("");
+  const [matched, setMatched] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}?action=getDrugMaster&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => setDrugList(data.success ? data.data : []))
+      .catch(() => setDrugList([]));
+  }, []);
+
+  const handleChange = (val) => {
+    setQuery(val);
+    const found = (drugList || []).find(d => d.itemName === val || d.itemCode === val);
+    setMatched(found || null);
+    if (found) onSelect(found);
+  };
+
+  return (
+    <div style={{marginBottom: "12px"}}>
+      <label>ค้นหาชื่อยา (จากฐานข้อมูลยา) — เลือกแล้วจะเติมรหัส/หน่วย/ราคาให้อัตโนมัติ</label>
+      <input
+        list={listId}
+        value={query}
+        onChange={e => handleChange(e.target.value)}
+        placeholder={drugList === null ? "กำลังโหลดฐานข้อมูลยา..." : "พิมพ์ชื่อยาหรือรหัสยา..."}
+      />
+      <datalist id={listId}>
+        {(drugList || []).map(d => <option key={d.itemCode} value={d.itemName} />)}
+      </datalist>
+      {matched && (
+        <div className="sub" style={{marginTop: "4px"}}>
+          รหัส: {matched.itemCode} · หน่วย: {matched.unit || "-"} · ราคา: {fmt(matched.unitValue)} · ประเภท: {drugTypeLabel(matched.drugType)}
+        </div>
+      )}
+      {drugList && drugList.length === 0 && (
+        <div className="sub" style={{marginTop: "4px"}}>ยังไม่มีข้อมูลในฐานข้อมูลยา — เพิ่มได้ที่หน้า admin-stock.html แท็บ "ฐานข้อมูลยา"</div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- ภาพรวมคลังยา (View All) ---------------- */
+function ViewAllPanel() {
+  const [items, setItems] = useState(null);
+  const [pointFilter, setPointFilter] = useState("all");
+  const [status, setStatus] = useState(null);
+
+  const load = () => {
+    setItems(null);
+    fetch(`${API_URL}?action=getStockLedgerAll&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setItems(data.data);
+        else { setStatus({ ok: false, msg: data.error }); setItems([]); }
+      })
+      .catch(err => { setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message }); setItems([]); });
+  };
+
+  useEffect(load, []);
+
+  // สรุปจำนวนรวมของแต่ละรายการยา จากทั้ง 3 คลังรวมกัน
+  const groupedByItem = React.useMemo(() => {
+    const map = {};
+    (items || []).forEach(it => {
+      if (!map[it.itemCode]) {
+        map[it.itemCode] = {
+          itemCode: it.itemCode, itemName: it.itemName, unit: it.unit,
+          main_warehouse: 0, sub_warehouse: 0, er_cabinet: 0, totalValue: 0
+        };
+      }
+      map[it.itemCode][it.storagePoint] = (map[it.itemCode][it.storagePoint] || 0) + (Number(it.currentQty) || 0);
+      map[it.itemCode].totalValue += (Number(it.totalValue) || 0);
+    });
+    return Object.values(map);
+  }, [items]);
+
+  const filtered = (items || []).filter(it => it.storagePoint === pointFilter);
+  const isAllView = pointFilter === "all";
+  const totalValue = isAllView
+    ? groupedByItem.reduce((sum, it) => sum + it.totalValue, 0)
+    : filtered.reduce((sum, it) => sum + (Number(it.totalValue) || 0), 0);
+  const rowCount = isAllView ? groupedByItem.length : filtered.length;
+
+  return (
+    <div>
+      <div className="point-tab-bar">
+        <button className={pointFilter === "all" ? "active" : ""} onClick={() => setPointFilter("all")}>
+          รวมทุกจุด (สรุป)
+        </button>
+        {STORAGE_POINTS.map(p => (
+          <button key={p.value} className={pointFilter === p.value ? "active" : ""} onClick={() => setPointFilter(p.value)}>
+            {p.label}
+          </button>
+        ))}
+        <button onClick={load} style={{marginLeft: "auto", background: "#eef4f8", color: "#0b2440"}}>🔄 รีเฟรช</button>
+      </div>
+
+      {items === null && <div className="loading">กำลังโหลดข้อมูล...</div>}
+
+      {items && (
+        <div className="summary-bar">
+          <div className="summary-box">จำนวนรายการ<b>{rowCount}</b></div>
+          <div className="summary-box">มูลค่ารวม{isAllView ? "ทุกคลัง" : "ทั้งคลัง"}<b>{totalValue.toLocaleString()} บาท</b></div>
+        </div>
+      )}
+
+      {items && rowCount === 0 && <div className="loading">ยังไม่มีรายการยา</div>}
+
+      {items && isAllView && groupedByItem.length > 0 && (
+        <div className="scroll-table">
+          <table>
+            <thead>
+              <tr>
+                <th>รหัส INVs</th>
+                <th>รายชื่อยา</th>
+                <th>หน่วย</th>
+                <th>คลังยาใหญ่</th>
+                <th>คลังยาย่อย</th>
+                <th>ตู้ ER</th>
+                <th>รวมทุกจุด</th>
+                <th>มูลค่ารวม</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedByItem.map((it, i) => {
+                const total = (it.main_warehouse || 0) + (it.sub_warehouse || 0) + (it.er_cabinet || 0);
+                return (
+                  <tr key={i}>
+                    <td>{it.itemCode}</td>
+                    <td>{it.itemName}</td>
+                    <td>{it.unit}</td>
+                    <td>{fmt(it.main_warehouse || 0)}</td>
+                    <td>{fmt(it.sub_warehouse || 0)}</td>
+                    <td>{fmt(it.er_cabinet || 0)}</td>
+                    <td><b>{fmt(total)}</b></td>
+                    <td>{fmt(it.totalValue)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {items && !isAllView && filtered.length > 0 && (
+        <div className="scroll-table">
+          <table>
+            <thead>
+              <tr>
+                <th>รหัส INVs</th>
+                <th>รายชื่อยา</th>
+                <th>จำนวนคงเหลือ</th>
+                <th>หน่วย</th>
+                <th>Max rate</th>
+                <th>Lot</th>
+                <th>Expire</th>
+                <th>ราคาต่อหน่วย</th>
+                <th>มูลค่ารวม</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((it, i) => (
+                <tr key={i}>
+                  <td>{it.itemCode}</td>
+                  <td>{it.itemName}</td>
+                  <td>{fmt(it.currentQty)}</td>
+                  <td>{it.unit}</td>
+                  <td>{fmt(it.maxRate)}</td>
+                  <td>{it.lot}</td>
+                  <td>{it.expiryDate ? String(it.expiryDate).slice(0,10) : ""}</td>
+                  <td>{fmt(it.unitValue)}</td>
+                  <td>{fmt(it.totalValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+/* ---------------- รับยาเข้าคลังยาใหญ่ ---------------- */
+function ReceiveMainPanel({ performedBy }) {
+  const [item, setItem] = useState({ itemCode: "", itemName: "", qty: "", unit: "", maxRate: "", lot: "", expiryDate: "", unitValue: "" });
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const update = (k, v) => setItem(prev => ({ ...prev, [k]: v }));
+
+  const submit = async () => {
+    if (!item.itemCode || !item.qty) {
+      setStatus({ ok: false, msg: "กรุณากรอกรหัสยาและจำนวนที่รับเข้า" });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "receiveMainWarehouse", item, performedBy, notes })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: `รับเข้าสำเร็จ — คงเหลือใหม่ในคลังยาใหญ่: ${data.newQty}` });
+        setItem({ itemCode: "", itemName: "", qty: "", unit: "", maxRate: "", lot: "", expiryDate: "", unitValue: "" });
+        setNotes("");
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="sub">รับยาเข้าคลังยาใหญ่ — ถ้ารหัสยานี้มีอยู่แล้วในคลังใหญ่ จำนวนจะถูก "บวกเพิ่ม" จากของเดิม</div>
+
+      <DrugMasterPicker listId="drugListReceiveMain" onSelect={(d) => {
+        update("itemCode", d.itemCode);
+        update("itemName", d.itemName);
+        update("unit", d.unit || "");
+        update("unitValue", d.unitValue !== "" && d.unitValue !== undefined ? String(d.unitValue) : "");
+      }} />
+
+      <div className="form-row">
+        <div><label>รหัสยา (ItemCode) *</label><input value={item.itemCode} onChange={e => update("itemCode", e.target.value)} /></div>
+        <div><label>ชื่อยา (ItemName)</label><input value={item.itemName} onChange={e => update("itemName", e.target.value)} /></div>
+        <div><label>จำนวนที่รับเข้า *</label><input type="number" value={item.qty} onChange={e => update("qty", e.target.value)} /></div>
+        <div><label>หน่วย</label><input value={item.unit} onChange={e => update("unit", e.target.value)} /></div>
+        <div><label>Max rate</label><input value={item.maxRate} onChange={e => update("maxRate", e.target.value)} /></div>
+        <div><label>Lot</label><input value={item.lot} onChange={e => update("lot", e.target.value)} /></div>
+        <div><label>วันหมดอายุ (Expire)</label><input value={item.expiryDate} onChange={e => update("expiryDate", e.target.value)} placeholder="เช่น 2027-01-31" /></div>
+        <div><label>ราคาต่อหน่วย</label><input type="number" value={item.unitValue} onChange={e => update("unitValue", e.target.value)} /></div>
+      </div>
+      <label>หมายเหตุ</label>
+      <textarea rows="2" value={notes} onChange={e => setNotes(e.target.value)} />
+      <button style={{marginTop: "16px"}} disabled={loading} onClick={submit}>
+        {loading ? "กำลังบันทึก..." : "รับยาเข้าคลังยาใหญ่"}
+      </button>
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+/* ---------------- โอนย้ายยา: คลังใหญ่ -> คลังย่อย/ER ---------------- */
+function TransferPanel({ performedBy }) {
+  const [mainItems, setMainItems] = useState(null);
+  const [itemCode, setItemCode] = useState("");
+  const [qty, setQty] = useState("");
+  const [toPoint, setToPoint] = useState("sub_warehouse");
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadMain = () => {
+    setMainItems(null);
+    fetch(`${API_URL}?action=getMainWarehouseStock&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => setMainItems(data.success ? data.data : []))
+      .catch(() => setMainItems([]));
+  };
+  useEffect(loadMain, []);
+
+  const selected = (mainItems || []).find(it => it.itemCode === itemCode);
+
+  const submit = async () => {
+    if (!itemCode || !qty) {
+      setStatus({ ok: false, msg: "กรุณาเลือกรายการยาและกรอกจำนวน" });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "transferStock", itemCode, qty, toPoint, performedBy, notes })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: `โอนย้ายสำเร็จ — คงเหลือใหม่ที่ ${pointLabel(toPoint)}: ${data.newQtyAtDestination}` });
+        setQty(""); setNotes("");
+        loadMain();
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="sub">โอนย้ายยาจากคลังยาใหญ่ ไปยังคลังยาย่อย หรือ ตู้ยาเสพติด ER นอกเวลา</div>
+
+      <label>เลือกรายการยา (จากคลังยาใหญ่)</label>
+      {mainItems === null && <div className="loading">กำลังโหลด...</div>}
+      {mainItems && (
+        <select value={itemCode} onChange={e => setItemCode(e.target.value)}>
+          <option value="">-- เลือกรายการ --</option>
+          {mainItems.map(it => (
+            <option key={it.itemCode} value={it.itemCode}>
+              {it.itemCode} — {it.itemName} (คงเหลือ {fmt(it.currentQty)} {it.unit})
+            </option>
+          ))}
+        </select>
+      )}
+
+      {selected && (
+        <div className="sub" style={{marginTop: "6px"}}>
+          Lot: {selected.lot || "-"} · หมดอายุ: {selected.expiryDate ? String(selected.expiryDate).slice(0,10) : "-"} · ราคาต่อหน่วย: {fmt(selected.unitValue)}
+        </div>
+      )}
+
+      <div className="form-row" style={{marginTop: "10px"}}>
+        <div><label>จำนวนที่โอนย้าย</label><input type="number" value={qty} onChange={e => setQty(e.target.value)} /></div>
+        <div>
+          <label>คลังปลายทาง</label>
+          <select value={toPoint} onChange={e => setToPoint(e.target.value)}>
+            <option value="sub_warehouse">คลังยาย่อย</option>
+            <option value="er_cabinet">ตู้ยาเสพติด ER นอกเวลา</option>
+          </select>
+        </div>
+      </div>
+
+      <label>หมายเหตุ</label>
+      <textarea rows="2" value={notes} onChange={e => setNotes(e.target.value)} />
+
+      <button style={{marginTop: "16px"}} disabled={loading} onClick={submit}>
+        {loading ? "กำลังบันทึก..." : "ยืนยันโอนย้าย"}
+      </button>
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+/* ---------------- รับคืนยาจากผู้ป่วย (คลังยาย่อย) ---------------- */
+function PatientReturnPanel({ performedBy }) {
+  const [item, setItem] = useState({ itemCode: "", itemName: "", qty: "", unit: "", maxRate: "", lot: "", expiryDate: "", unitValue: "" });
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const update = (k, v) => setItem(prev => ({ ...prev, [k]: v }));
+
+  const submit = async () => {
+    if (!item.itemCode || !item.qty) {
+      setStatus({ ok: false, msg: "กรุณากรอกรหัสยาและจำนวนที่รับคืน" });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "patientReturnSubWarehouse", item, performedBy, notes })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: `รับคืนสำเร็จ — คงเหลือใหม่ในคลังยาย่อย: ${data.newQty}` });
+        setItem({ itemCode: "", itemName: "", qty: "", unit: "", maxRate: "", lot: "", expiryDate: "", unitValue: "" });
+        setNotes("");
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="sub">รับคืนยาที่เหลือจากผู้ป่วย เข้าคลังยาย่อยเท่านั้น — ถ้ารหัสยานี้มีอยู่แล้ว จำนวนจะถูกบวกเพิ่ม</div>
+
+      <DrugMasterPicker listId="drugListPatientReturn" onSelect={(d) => {
+        update("itemCode", d.itemCode);
+        update("itemName", d.itemName);
+        update("unit", d.unit || "");
+        update("unitValue", d.unitValue !== "" && d.unitValue !== undefined ? String(d.unitValue) : "");
+      }} />
+
+      <div className="form-row">
+        <div><label>รหัสยา (ItemCode) *</label><input value={item.itemCode} onChange={e => update("itemCode", e.target.value)} /></div>
+        <div><label>ชื่อยา (ItemName)</label><input value={item.itemName} onChange={e => update("itemName", e.target.value)} /></div>
+        <div><label>จำนวนที่รับคืน *</label><input type="number" value={item.qty} onChange={e => update("qty", e.target.value)} /></div>
+        <div><label>หน่วย</label><input value={item.unit} onChange={e => update("unit", e.target.value)} /></div>
+        <div><label>Lot</label><input value={item.lot} onChange={e => update("lot", e.target.value)} /></div>
+        <div><label>วันหมดอายุ (Expire)</label><input value={item.expiryDate} onChange={e => update("expiryDate", e.target.value)} /></div>
+        <div><label>ราคาต่อหน่วย</label><input type="number" value={item.unitValue} onChange={e => update("unitValue", e.target.value)} /></div>
+      </div>
+      <label>หมายเหตุ (เช่น เหตุผลที่คืน / HN ผู้ป่วย)</label>
+      <textarea rows="2" value={notes} onChange={e => setNotes(e.target.value)} />
+      <button style={{marginTop: "16px"}} disabled={loading} onClick={submit}>
+        {loading ? "กำลังบันทึก..." : "บันทึกรับคืนยา"}
+      </button>
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+/* ---------------- แก้ไข/ปรับข้อมูลอิสระ (ทุกคลัง) ---------------- */
+function ManualAdjustPanel({ performedBy }) {
+  const [item, setItem] = useState({
+    itemCode: "", itemName: "", storagePoint: "main_warehouse", currentQty: "",
+    unit: "", maxRate: "", lot: "", expiryDate: "", unitValue: "", totalValue: ""
+  });
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const update = (k, v) => setItem(prev => ({ ...prev, [k]: v }));
+
+  const save = async () => {
+    if (!item.itemCode || !item.itemName || item.currentQty === "") {
+      setStatus({ ok: false, msg: "กรุณากรอกรหัสยา ชื่อยา และจำนวนคงเหลือให้ครบ" });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: (window.NARCOTICS_SESSION||{}).token,  action: "upsertStockItem", item: { ...item, updatedBy: performedBy || "" } })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: "บันทึกข้อมูลเรียบร้อย (ตั้งจำนวนคงเหลือใหม่ตามที่กรอก)" });
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="sub">
+        ใช้แก้ไขข้อมูลที่ไม่ถูกต้อง หรือกรอกตั้งต้นข้อมูลได้ทุกคลังอย่างอิสระ —
+        โหมดนี้จะ "ตั้งค่าจำนวนคงเหลือใหม่ทับของเดิม" (ไม่ใช่บวกเพิ่ม) ถ้ารหัสยา+คลังตรงกับรายการเดิม
+      </div>
+
+      <DrugMasterPicker listId="drugListManualAdjust" onSelect={(d) => {
+        update("itemCode", d.itemCode);
+        update("itemName", d.itemName);
+        update("unit", d.unit || "");
+        update("unitValue", d.unitValue !== "" && d.unitValue !== undefined ? String(d.unitValue) : "");
+      }} />
+
+      <div className="form-row">
+        <div><label>รหัสยา (ItemCode) *</label><input value={item.itemCode} onChange={e => update("itemCode", e.target.value)} /></div>
+        <div><label>ชื่อยา (ItemName) *</label><input value={item.itemName} onChange={e => update("itemName", e.target.value)} /></div>
+        <div>
+          <label>คลัง</label>
+          <select value={item.storagePoint} onChange={e => update("storagePoint", e.target.value)}>
+            {STORAGE_POINTS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+        <div><label>จำนวนคงเหลือ *</label><input type="number" value={item.currentQty} onChange={e => update("currentQty", e.target.value)} /></div>
+        <div><label>หน่วย</label><input value={item.unit} onChange={e => update("unit", e.target.value)} /></div>
+        <div><label>Max rate</label><input value={item.maxRate} onChange={e => update("maxRate", e.target.value)} /></div>
+        <div><label>Lot</label><input value={item.lot} onChange={e => update("lot", e.target.value)} /></div>
+        <div><label>วันหมดอายุ (Expire)</label><input value={item.expiryDate} onChange={e => update("expiryDate", e.target.value)} /></div>
+        <div><label>ราคาต่อหน่วย</label><input type="number" value={item.unitValue} onChange={e => update("unitValue", e.target.value)} /></div>
+        <div><label>มูลค่ารวม (เว้นว่างให้คำนวณอัตโนมัติ)</label><input type="number" value={item.totalValue} onChange={e => update("totalValue", e.target.value)} /></div>
+      </div>
+      <button style={{marginTop: "16px"}} disabled={loading} onClick={save}>
+        {loading ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
+      </button>
+      {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("view");
+  const session = window.NARCOTICS_SESSION || {};
+  const performedBy = session.displayName;
+
+  const TABS = [
+    { key: "view", label: "ภาพรวมคลังยา (3 จุด)" },
+    { key: "receive", label: "รับยาเข้าคลังยาใหญ่" },
+    { key: "transfer", label: "โอนย้าย (ใหญ่ → ย่อย/ER)" },
+    { key: "return", label: "รับคืนยาจากผู้ป่วย (ย่อย)" },
+    { key: "adjust", label: "แก้ไข/ปรับข้อมูลอิสระ" }
+  ];
+
+  return (
+    <div className="app">
+      <div className="card">
+        <h1>คลังยาเสพติด/วัตถุออกฤทธิ์ 3 จุด — Stock Ledger</h1>
+        <div className="sub">คลังยาใหญ่ / คลังยาย่อย / ตู้ยาเสพติด ER นอกเวลา</div>
+        <div className="sub" style={{marginTop: "-8px"}}>
+          ผู้ดำเนินการ: <b style={{color: "#0e7c86"}}>{session.displayName}</b> ({session.username}) — ใช้บัญชีที่เข้าสู่ระบบเป็นผู้บันทึกโดยอัตโนมัติ
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="tab-bar">
+          {TABS.map(t => (
+            <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>{t.label}</button>
+          ))}
+        </div>
+
+        {tab === "view" && <ViewAllPanel />}
+        {tab === "receive" && <ReceiveMainPanel performedBy={performedBy} />}
+        {tab === "transfer" && <TransferPanel performedBy={performedBy} />}
+        {tab === "return" && <PatientReturnPanel performedBy={performedBy} />}
+        {tab === "adjust" && <ManualAdjustPanel performedBy={performedBy} />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>จัดการผู้ใช้งาน — Admin</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; overflow-x: hidden; font-size: 16px; }
+  body {
+    zoom: 0.92;
+    font-family: 'Sarabun', 'Noto Sans Thai', sans-serif;
+    background: radial-gradient(circle at 6% 15%, rgba(14,165,233,0.08), transparent 42%), radial-gradient(circle at 95% 12%, rgba(183,134,42,0.07), transparent 40%), radial-gradient(circle at 12% 92%, rgba(16,42,67,0.07), transparent 42%), radial-gradient(circle at 90% 90%, rgba(14,165,233,0.07), transparent 42%), #f8fafc;
+    background-attachment: fixed;
+  }
+  .app { width: 100%; max-width: 100%; margin: 0; padding: 28px clamp(20px, 3vw, 56px) 48px; box-sizing: border-box; }
+  .card { background: #fff; border-radius: 14px; padding: 16px 20px; box-shadow: 0 2px 10px rgba(16,42,67,0.08); margin-bottom: 12px; }
+  h1 { font-size: 1.25rem; color: #102a43; margin: 0 0 4px; }
+  h2 { font-size: 1rem; color: #102a43; margin: 0 0 8px; }
+  .sub { color: #777; font-size: 0.9rem; margin-bottom: 16px; }
+  label { display: block; font-size: 0.9rem; color: #444; margin: 10px 0 4px; }
+  select, input, textarea { padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; font-family: inherit; width: 100%; }
+  button { padding: 10px 16px; background: #102a43; color: #fff; border: none; border-radius: 10px; font-size: 0.95rem; cursor: pointer; }
+  button.secondary { background: #eef4f8; color: #0b2440; }
+  button.danger { background: #fee2e2; color: #991b1b; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .status { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 0.9rem; }
+  .ok { background: #dcfce7; color: #166534; }
+  .err { background: #fee2e2; color: #991b1b; }
+  .warn { background: #fef3c7; color: #92400e; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: left; }
+  th { color: #666; font-weight: 600; font-size: 0.78rem; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .role-badge { padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .role-badge.admin { background: #fdf2f8; color: #be185d; }
+  .role-badge.staff { background: #eef0ff; color: #4338CA; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal-box { background: #fff; border-radius: 14px; padding: 24px; max-width: 380px; width: 90%; text-align: left; }
+</style>
+</head>
+<body>
+<script>
+(function() {
+  var REQUIRED_ROLES = ["admin"];
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem("narcoticsSession")); } catch (e) {}
+  var now = new Date();
+  if (!session || !session.token || !session.expiresAt || new Date(session.expiresAt) < now) {
+    localStorage.removeItem("narcoticsSession");
+    window.location.href = "index.html";
+  } else if (REQUIRED_ROLES.indexOf(session.role) === -1) {
+    window.location.href = "index.html";
+  } else {
+    window.NARCOTICS_SESSION = session;
+  }
+})();
+</script>
+<div id="narcoticsTopbar" style="display:flex;align-items:center;justify-content:flex-end;gap:12px;background:#102a43;padding:9px 22px;width:100%;box-sizing:border-box;font-family:'Sarabun','Noto Sans Thai',sans-serif;font-size:0.85rem;color:#cbd5e1;border-bottom:1px solid #1c3a54;">
+  <a href="index.html" style="color:#ffffff;text-decoration:none;font-weight:600;margin-right:auto;">&larr; กลับหน้าหลัก</a>
+  <span>เข้าสู่ระบบในนาม <b id="narcoticsUserName" style="color:#ffffff;"></b></span>
+  <span id="narcoticsUserRole" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.2);padding:2px 10px;border-radius:6px;font-size:0.78rem;"></span>
+  <button onclick="narcoticsLogout()" style="width:auto;margin-top:0;background:transparent;color:#fca5a5;border:1px solid rgba(252,165,165,0.4);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.8rem;">ออกจากระบบ</button>
+</div>
+<script>
+  (function() {
+    var s = window.NARCOTICS_SESSION;
+    if (!s) return;
+    document.getElementById("narcoticsUserName").textContent = s.displayName || s.username;
+    document.getElementById("narcoticsUserRole").textContent = s.role === "admin" ? "ผู้ดูแลระบบ" : "ผู้ปฏิบัติงาน";
+  })();
+  function narcoticsLogout() {
+    var s = window.NARCOTICS_SESSION;
+    localStorage.removeItem("narcoticsSession");
+    if (s && s.token && typeof API_URL !== "undefined") {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ action: "logout", token: s.token }) }).catch(function(){});
+    }
+    window.location.href = "index.html";
+  }
+</script>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// URL ของ Apps Script Web App
+const API_URL = "https://script.google.com/macros/s/AKfycbxpNAS-o0fcxYeCorsy6vRI6XkfFeWOEfBLRZ2VbMcHANn2ijkKWhNa92EwCp5aotv5jw/exec";
+
+function App() {
+  const session = window.NARCOTICS_SESSION || {};
+  const [users, setUsers] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const [newUser, setNewUser] = useState({ username: "", displayName: "", role: "staff", password: "" });
+  const [resetTarget, setResetTarget] = useState(null); // { username, displayName }
+  const [newPassword, setNewPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    setUsers(null);
+    fetch(`${API_URL}?action=adminListUsers&token=${(window.NARCOTICS_SESSION||{}).token}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setUsers(data.data);
+        else { setStatus({ ok: false, msg: data.error }); setUsers([]); }
+      })
+      .catch(err => { setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message }); setUsers([]); });
+  };
+
+  useEffect(load, []);
+
+  const createUser = async () => {
+    if (!newUser.username || !newUser.displayName || !newUser.password) {
+      setStatus({ ok: false, msg: "กรุณากรอก Username, ชื่อ-สกุล, และรหัสผ่านให้ครบ" });
+      return;
+    }
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: session.token, action: "adminCreateUser", ...newUser })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: "สร้างบัญชีผู้ใช้เรียบร้อยแล้ว" });
+        setNewUser({ username: "", displayName: "", role: "staff", password: "" });
+        load();
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setLoading(false);
+  };
+
+  const changeRole = async (username, role) => {
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: session.token, action: "adminChangeRole", username, role })
+      });
+      const data = await res.json();
+      if (data.success) { load(); } else { setStatus({ ok: false, msg: data.error }); }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+  };
+
+  const saveResetPassword = async () => {
+    if (!newPassword) {
+      setStatus({ ok: false, msg: "กรุณากรอกรหัสผ่านใหม่" });
+      return;
+    }
+    setSaving(true);
+    setStatus(null);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ token: session.token, action: "adminResetPassword", username: resetTarget.username, newPassword })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatus({ ok: true, msg: `ตั้งรหัสผ่านใหม่ให้ ${resetTarget.displayName} เรียบร้อยแล้ว` });
+        setResetTarget(null);
+        setNewPassword("");
+      } else {
+        setStatus({ ok: false, msg: data.error });
+      }
+    } catch (err) {
+      setStatus({ ok: false, msg: "เชื่อมต่อไม่สำเร็จ: " + err.message });
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="app">
+      <div className="card">
+        <h1>จัดการผู้ใช้งาน</h1>
+        <div className="sub">เพิ่มบัญชีผู้ใช้ใหม่ ดูรายชื่อผู้ใช้ทั้งหมด เปลี่ยนสิทธิ์ หรือรีเซ็ตรหัสผ่าน (สำหรับผู้ดูแลระบบเท่านั้น)</div>
+        <div className="status warn">
+          ⚠ ด้วยเหตุผลด้านความปลอดภัย รหัสผ่านของผู้ใช้จะถูกเข้ารหัสแบบทางเดียว (SHA-256) ไว้ในระบบ
+          จึง<b>ไม่สามารถเรียกดูรหัสผ่านเดิมของใครได้</b> — ทำได้เพียง "ตั้งรหัสผ่านใหม่ทับ" ให้แทนเท่านั้น
+        </div>
+        {status && <div className={`status ${status.ok ? "ok" : "err"}`}>{status.msg}</div>}
+      </div>
+
+      <div className="card">
+        <h2>เพิ่มบัญชีผู้ใช้ใหม่</h2>
+        <div className="form-row">
+          <div><label>Username *</label><input value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} /></div>
+          <div><label>ชื่อ-สกุล *</label><input value={newUser.displayName} onChange={e => setNewUser({...newUser, displayName: e.target.value})} /></div>
+          <div>
+            <label>สิทธิ์</label>
+            <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+              <option value="staff">ผู้ปฏิบัติงาน (staff)</option>
+              <option value="admin">ผู้ดูแลระบบ (admin)</option>
+            </select>
+          </div>
+          <div><label>รหัสผ่านเริ่มต้น *</label><input type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} /></div>
+        </div>
+        <button style={{marginTop: "14px"}} disabled={loading} onClick={createUser}>
+          {loading ? "กำลังบันทึก..." : "+ เพิ่มบัญชีผู้ใช้"}
+        </button>
+      </div>
+
+      <div className="card">
+        <h2>รายชื่อผู้ใช้งานทั้งหมด</h2>
+        {users === null && <div className="sub">กำลังโหลด...</div>}
+        {users && users.length === 0 && <div className="sub">ยังไม่มีผู้ใช้งานในระบบ</div>}
+        {users && users.length > 0 && (
+          <table>
+            <thead>
+              <tr>
+                <th>ชื่อ-สกุล</th>
+                <th>Username</th>
+                <th>สิทธิ์</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u, i) => (
+                <tr key={i}>
+                  <td>{u.displayName}</td>
+                  <td>{u.username}</td>
+                  <td><span className={`role-badge ${u.role}`}>{u.role === "admin" ? "ผู้ดูแลระบบ" : "ผู้ปฏิบัติงาน"}</span></td>
+                  <td>
+                    <div className="btn-group">
+                      <button className="secondary" onClick={() => setResetTarget({ username: u.username, displayName: u.displayName })}>
+                        รีเซ็ตรหัสผ่าน
+                      </button>
+                      <button className="secondary" onClick={() => changeRole(u.username, u.role === "admin" ? "staff" : "admin")}>
+                        {u.role === "admin" ? "ปรับเป็นผู้ปฏิบัติงาน" : "ปรับเป็นผู้ดูแลระบบ"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {resetTarget && (
+        <div className="modal-backdrop">
+          <div className="modal-box">
+            <h2>ตั้งรหัสผ่านใหม่</h2>
+            <div className="sub">สำหรับ {resetTarget.displayName} ({resetTarget.username})</div>
+            <label>รหัสผ่านใหม่</label>
+            <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+            <div style={{display: "flex", gap: "10px", marginTop: "14px"}}>
+              <button disabled={saving} onClick={saveResetPassword}>{saving ? "กำลังบันทึก..." : "บันทึก"}</button>
+              <button className="secondary" disabled={saving} onClick={() => { setResetTarget(null); setNewPassword(""); }}>ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
